@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Document</title>
+    </head>
+    <body>
+        <div id="output"></div>
+        <script>
+            const log = (text) => {
+                const div = document.getElementById('output');
+                div.innerHTML = div.innerHTML + `<br>${text}`;
+            }
+            const clearScreen = () => {
+                const div = document.getElementById('output');
+                div.innerHTML = '';
+            }
+            const checkServices = async () => {
+                clearScreen();
+                let device = null;
+                try {
+                    log('Requesting Bluetooth Device...');
+                    device = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: [
+                            '0000ae30-0000-1000-8000-00805f9b34fb',
+                            '0000af30-0000-1000-8000-00805f9b34fb'
+                        ]
+                    });
+        
+                    log('Connecting to GATT Server...');
+                    const server = await device.gatt.connect();
+        
+                    log('searching Services...');
+                    const services = await server.getPrimaryServices();
+                    for (const service of services) {
+                        const chars = await service.getCharacteristics();
+                        for (const char of chars) {
+                            log(service.uuid + ' ' + char.uuid);
+                        }
+                    }
+                    log('end');
+                } catch(error) {
+                    log('Argh! ' + error);
+                } finally {
+                    device.gatt.disconnect()
+                }
+            }
+            const checkBattery = async () => {
+                try {
+                    log('Requesting Bluetooth Device...');
+                    const device = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: [
+                            'battery_service',
+                        ]
+                    });
+
+                    log('Connecting to GATT Server...');
+                    const server = await device.gatt.connect();
+
+                    log('Getting Battery Service...');
+                    const service = await server.getPrimaryService('battery_service');
+
+                    log('Getting Battery Level Characteristic...');
+                    const characteristic = await service.getCharacteristic('battery_level');
+
+                    log('Reading Battery Level...');
+                    const value = await characteristic.readValue();
+
+                    log('> Battery Level is ' + value.getUint8(0) + '%');
+                } catch (error) {
+                    log('Argh! ' + error);
+                }
+            }
+            document.addEventListener('click', checkServices)
+        </script>
+    </body>
+</html>
