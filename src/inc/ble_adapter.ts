@@ -1,3 +1,5 @@
+import { Queue } from "./queue";
+
 const PRINT_CHARACTERISTIC = "0000ae01-0000-1000-8000-00805f9b34fb";
 const NOTIFY_CHARACTERISTIC = "0000ae02-0000-1000-8000-00805f9b34fb";
 
@@ -19,12 +21,8 @@ export const connect = async (device: BluetoothDevice): Promise<BleDevice> => {
         throw new Error('Service not found');
       }
       for (const service of services) {
-        console.log(service.uuid);
-        
         const chars = await service.getCharacteristics();
         for (const char of chars) {
-          console.log(" >>>" + char.uuid);
-          
           if (char.uuid == NOTIFY_CHARACTERISTIC) {
             notify_characteristic = char;
           }
@@ -32,6 +30,11 @@ export const connect = async (device: BluetoothDevice): Promise<BleDevice> => {
             printer_characteristic = char;
           }
         }
+
+        await notify_characteristic?.startNotifications()
+        notify_characteristic?.addEventListener('characteristicvaluechanged', () => {
+          Queue.signal()
+        })
       }
 
       if (

@@ -1,7 +1,8 @@
 import { PrinterData } from "./cat_image";
 import { Commander } from './cat_commands';
 import { TextEncoder, CustomFonts, TextOptions } from "./text_encoder";
-import { BleDevice, connect, scan } from './ble_adapter';
+import { BleDevice, connect } from './ble_adapter';
+import { Queue } from "./queue";
 
 export interface PrinterState {
     out_of_paper: boolean;
@@ -13,15 +14,13 @@ export interface PrinterState {
 }
 
 export enum StateFlag {
-    out_of_paper = 1 << 0,
-    cover = 1 << 1,
-    overheat = 1 << 2,
-    low_power = 1 << 3,
-    pause = 1 << 4,
-    busy = 0x80,
+    out_of_paper = 1,
+    cover = 2,
+    overheat = 4,
+    low_power = 8,
+    pause = 16,
+    busy = 128,
 }
-
-const sleep = (ms: number) => new Promise(accept => setTimeout(accept, ms));
 
 export class CatPrinter extends Commander {
     private device: BleDevice
@@ -29,9 +28,7 @@ export class CatPrinter extends Commander {
     private energy: number = 65500
     private speed: number = 50
     private print_width = 384
-    private WAIT_AFTER_EACH_CHUNK_MS = 5
     private mtu: number = 200
-    private _stack: any[] = [];
     private state: PrinterState = {
         out_of_paper: false,
         cover: false,
@@ -49,6 +46,13 @@ export class CatPrinter extends Commander {
 
         this.device = ble_device
         this.text_encoder = new TextEncoder(this.print_width)
+        Queue.setCallback(async (item: any) => {
+            try {
+                await this.device.print_characteristic!.writeValueWithoutResponse(item)
+            } catch (error) {
+                console.error(error)
+            }
+        })
     }
 
     /**
@@ -147,28 +151,18 @@ export class CatPrinter extends Commander {
      * @returns 
      */
     protected async send(data: Uint8Array): Promise<void> {
-
-        this.device = await connect(this.device.device);
-        this.device.notify_characteristic?.startNotifications()
-        this.device.notify_characteristic?.addEventListener('characteristicvaluechanged', (e) => {
-            const target = e.target as HTMLTextAreaElement
-            this.updateStatus(target?.value);
-
-            if (!this.state.busy) {
-                if (this._stack.length > 0) {
-                    let chunk = this._stack.shift();
-                    if (chunk) {
-                        this.device.print_characteristic!.writeValueWithoutResponse(chunk.buffer)
-                    }
-                }
-            }
+        if (!this.device.device.gatt?.connected) {
+            this.device = await connect(this.device.device);
+        }
+        await this.device.notify_characteristic?.startNotifications()
+        this.device.notify_characteristic?.addEventListener('characteristicvaluechanged', () => {
+            Queue.signal()
         })
         const chunks = this.chunkify(data);
         for (const chunk of chunks) {
-            this._stack.push(chunk);
+            Queue.push(chunk);
         }
-        console.log(this._stack);
-        
+        await Queue.start();
         return
     }
 
@@ -222,21 +216,17 @@ export class CatPrinter extends Commander {
         await this.getDeviceState()
     }
 
-    private updateStatus(data: any) {
-        if (!data) {
-            return
-        }
-        const state = data.getInt32(6)
+    private updateStatus(dt: any) {
+        let data: Uint8Array = new Uint8Array(dt.buffer);
+        const state = data[6]
 
         this.state = {
-            out_of_paper: (state & StateFlag.out_of_paper) == 0 ? false : true,
-            cover: (state & StateFlag.cover) == 0 ? false : true,
-            overheat: (state & StateFlag.overheat) == 0 ? false : true,
-            low_power: (state & StateFlag.low_power) == 0 ? false : true,
-            pause: (state & StateFlag.pause) == 0 ? false : true,
-            busy: (state & StateFlag.busy) == 0 ? false : true
+            out_of_paper: state === StateFlag.out_of_paper ? false : true,
+            cover: state === StateFlag.cover ? false : true,
+            overheat: state === StateFlag.overheat ? false : true,
+            low_power: state === StateFlag.low_power ? false : true,
+            pause: state === StateFlag.pause ? false : true,
+            busy: state === StateFlag.busy ? false : true
         }
-
-        console.log(this.state)
     }
 }
