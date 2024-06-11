@@ -12,6 +12,7 @@ export const createCanvas = (width: number, height: number): HTMLCanvasElement =
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
+    canvas.style.display = 'none';
     document.body.appendChild(canvas);
     return canvas;
 }
