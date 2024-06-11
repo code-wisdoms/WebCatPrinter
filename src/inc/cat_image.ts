@@ -22,7 +22,7 @@ export class PrinterData {
 
     private static async prepareImage(image: ImageBitmap | HTMLCanvasElement): Promise<PrinterData> {
         const canvas = createCanvas(image.width, image.height)
-        const ctx: CanvasRenderingContext2D | undefined = canvas.getContext('2d') ?? undefined
+        const ctx: CanvasRenderingContext2D | undefined = canvas.getContext('2d', { willReadFrequently: true }) ?? undefined
         if (!ctx) {
             throw Error('canvas not defined');
         }

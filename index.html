@@ -4,12 +4,18 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Document</title>
-        <script src="./lib/inc/ble_adapter.js"></script>
+        <script src="./dist/bundle.umd.js"></script>
     </head>
     <body>
         <script>
             document.addEventListener('click', async () => {
-                console.log(await (new BluetoothAdapter).scan());
+                bleDevice = await MyLibrary.scan()
+                const printer = new MyLibrary.CatPrinter(bleDevice)
+                printer.newText()
+                printer.addText('Ahmed Raza', {font: '', font_size: 60, alignment: 'center' })
+                printer.newLine()
+                await printer.printText()
+                //await printer.disconnect()
             })
         </script>
     </body>

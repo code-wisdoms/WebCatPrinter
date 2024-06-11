@@ -12,7 +12,7 @@ export const createCanvas = (width: number, height: number): HTMLCanvasElement =
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    document.appendChild(canvas);
+    document.body.appendChild(canvas);
     return canvas;
 }
 export const loadImage = (src: string): Promise<ImageBitmap> => {

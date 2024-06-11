@@ -1,7 +1,7 @@
 import { PrinterData } from "./cat_image";
 import { Commander } from './cat_commands';
 import { TextEncoder, CustomFonts, TextOptions } from "./text_encoder";
-import { BleDevice } from './ble_adapter';
+import { BleDevice, connect, scan } from './ble_adapter';
 
 export interface PrinterState {
     out_of_paper: boolean;
@@ -27,10 +27,11 @@ export class CatPrinter extends Commander {
     private device: BleDevice
     private text_encoder: TextEncoder
     private energy: number = 65500
-    private speed: number = 54
+    private speed: number = 50
     private print_width = 384
-    private WAIT_AFTER_EACH_CHUNK_MS = 30
+    private WAIT_AFTER_EACH_CHUNK_MS = 5
     private mtu: number = 200
+    private _stack: any[] = [];
     private state: PrinterState = {
         out_of_paper: false,
         cover: false,
@@ -48,13 +49,6 @@ export class CatPrinter extends Commander {
 
         this.device = ble_device
         this.text_encoder = new TextEncoder(this.print_width)
-
-        this.device.notify_characteristic?.startNotifications()
-        this.device.notify_characteristic?.addEventListener('characteristicvaluechanged', () => {
-            this.device.notify_characteristic.readValue().then((value: DataView) => {
-                this.updateStatus(value)
-            })
-        })
     }
 
     /**
@@ -153,10 +147,28 @@ export class CatPrinter extends Commander {
      * @returns 
      */
     protected async send(data: Uint8Array): Promise<void> {
-        for (const chunk of this.chunkify(data)) {
-            await this.device.print_characteristic!.writeValueWithoutResponse(chunk.buffer)
-            await sleep(this.WAIT_AFTER_EACH_CHUNK_MS)
+
+        this.device = await connect(this.device.device);
+        this.device.notify_characteristic?.startNotifications()
+        this.device.notify_characteristic?.addEventListener('characteristicvaluechanged', (e) => {
+            const target = e.target as HTMLTextAreaElement
+            this.updateStatus(target?.value);
+
+            if (!this.state.busy) {
+                if (this._stack.length > 0) {
+                    let chunk = this._stack.shift();
+                    if (chunk) {
+                        this.device.print_characteristic!.writeValueWithoutResponse(chunk.buffer)
+                    }
+                }
+            }
+        })
+        const chunks = this.chunkify(data);
+        for (const chunk of chunks) {
+            this._stack.push(chunk);
         }
+        console.log(this._stack);
+        
         return
     }
 
@@ -210,8 +222,12 @@ export class CatPrinter extends Commander {
         await this.getDeviceState()
     }
 
-    private updateStatus(data: DataView) {
+    private updateStatus(data: any) {
+        if (!data) {
+            return
+        }
         const state = data.getInt32(6)
+
         this.state = {
             out_of_paper: (state & StateFlag.out_of_paper) == 0 ? false : true,
             cover: (state & StateFlag.cover) == 0 ? false : true,
