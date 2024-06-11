@@ -12,7 +12,6 @@ export class Queue {
         if (Queue.isStarted) {
             return
         }
-        console.log('start');
         Queue.isStarted = true
         let item: any = Queue.queue.shift();
         if (item) {
@@ -23,13 +22,8 @@ export class Queue {
         Queue.queue.push(item);
     }
     public static async signal() {
-        console.log('signal in');
         Queue.toggle = !Queue.toggle;
-        console.log('Signal stat', Queue.toggle, Queue.isRunning);
-
         if (Queue.toggle === true && !Queue.isRunning) {
-            console.log('signal start');
-
             Queue.isRunning = true;
             let item: any = Queue.queue.shift();
             if (item) {
