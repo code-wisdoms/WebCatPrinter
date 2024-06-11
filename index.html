@@ -4,15 +4,21 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Document</title>
-        <script src="./dist/bundle.umd.js"></script>
+        <script src="./dist/bundle.umd.min.js"></script>
     </head>
     <body>
+        <div>
+            <input type="text" id="message" max="15">
+        </div>
+        <div>
+            <button id="print">Print</button>
+        </div>
         <script>
-            document.addEventListener('click', async () => {
+            document.getElementById('print').addEventListener('click', async () => {
                 bleDevice = await MyLibrary.scan()
                 const printer = new MyLibrary.CatPrinter(bleDevice)
                 printer.newText()
-                printer.addText('Ahmed Raza', {font: '', font_size: 60, alignment: 'center' })
+                printer.addText(document.getElementById('message').value, {font: '', font_size: 60, alignment: 'center' })
                 printer.newLine()
                 await printer.printText()
                 //await printer.disconnect()
