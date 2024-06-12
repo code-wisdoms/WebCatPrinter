@@ -136,6 +136,14 @@ export class CatPrinter extends Commander {
         this.text_encoder.addText(text, options)
     }
 
+    public addRow(columns: string[], options: TextOptions): void {
+        this.text_encoder.addRow(columns, options)
+    }
+
+    public addSeparator(options?: TextOptions): void {
+        this.text_encoder.addSeparator(options)
+    }
+
     public newLine(): void {
         this.text_encoder.newLine()
     }

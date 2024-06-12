@@ -11,6 +11,7 @@ export interface TextOptions {
     italic?: boolean
     underline?: boolean
     alignment?: 'left' | 'center' | 'right'
+    cellPad?: number[]
 }
 
 export class TextEncoder {
@@ -211,5 +212,69 @@ export class TextEncoder {
      */
     public loadFont(font: CustomFonts): void {
         registerFont(font.path, font.name)
+    }
+
+    /**
+     * add text row
+     * @param columns 
+     * @param options 
+     */
+    public addRow(columns: string[], options: TextOptions): void {
+        this.ctx!.textAlign = "left"
+        if (!options) options = { font: 'Arial', font_size: 16 }
+        let fontStyle = ''
+        if (options.bold) { fontStyle += 'bold ' }
+        if (options.italic) { fontStyle += 'italic ' }
+        if (!options.cellPad) { options.cellPad = [] }
+        this.ctx!.font = `${fontStyle}${options.font_size}px "${options.font || 'Arial'}"`
+        this.current_font_height = this.ctx!.measureText('M').actualBoundingBoxAscent + 5
+
+        if (this.current_y == 0) {
+            this.current_y += this.current_font_height
+            this.current_height += this.current_font_height
+        }
+
+        for (const i in columns) {
+            const num: number = parseInt(i);
+            const fontSize = options.cellPad[num] > 0 ? options.font_size - 4 : options.font_size
+
+            this.ctx!.font = `${fontStyle}${fontSize}px "${options.font || 'Arial'}"`
+            this.ctx!.fillText(columns[i], this.current_x, this.current_y)
+
+            let cellPad = 0;
+            let nextCol: number = num + 1;
+            if (options.cellPad[nextCol]) {
+                cellPad = -(options.cellPad[nextCol]);
+            }
+            if (options.cellPad[num]) {
+                cellPad = options.cellPad[num];
+            }
+            this.current_x += (this.max_width / columns.length) + cellPad
+        }
+    }
+
+    /**
+     * add a line separator
+     * @param options 
+     */
+    public addSeparator(options?: TextOptions): void {
+        this.ctx!.textAlign = "left"
+        if (!options) options = { font: 'Arial', font_size: 16 }
+        let fontStyle = ''
+        if (options.bold) { fontStyle += 'bold ' }
+        if (options.italic) { fontStyle += 'italic ' }
+        this.ctx!.font = `${fontStyle}${options.font_size}px "${options.font || 'Arial'}"`
+        this.current_font_height = this.ctx!.measureText('M').actualBoundingBoxAscent
+
+        const y_axis = this.current_y - (this.current_font_height * 2) + (this.current_font_height / 3)
+        this.current_y += this.current_font_height / 3;
+
+        this.ctx!.beginPath();
+        this.ctx!.moveTo(this.current_x, y_axis);
+        this.ctx!.lineTo(this.max_width, y_axis);
+        this.ctx!.lineWidth = 1;
+        this.ctx!.strokeStyle = '#000000';
+        this.ctx!.stroke();
+        this.ctx!.closePath();
     }
 }
