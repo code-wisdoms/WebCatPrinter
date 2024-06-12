@@ -18,7 +18,7 @@ module.exports = {
     {
       file: "dist/bundle.umd.js",
       format: "umd",
-      name: "MyLibrary",
+      name: "WebCatPrinter",
       sourcemap: true,
       banner: `/*\n* Web Cat Printer\n* (c) 2023-${new Date().getFullYear()} Ahmed Raza\n* Cannot use, copy, modify, and/or distribute this software for any purpose with or without fee.\n*/`
     },
