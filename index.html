@@ -17,15 +17,27 @@
             const messageElem = document.getElementById('message');
             const printElem = document.getElementById('print');
             printElem.addEventListener('click', async () => {
+                document.querySelectorAll('canvas').forEach(c => c.remove())
+                bleDevice = await WebCatPrinter.scan()
+                const printer = new WebCatPrinter.CatPrinter(bleDevice)
                 const lines = messageElem.value.split("\n");
-                bleDevice = await MyLibrary.scan()
-                const printer = new MyLibrary.CatPrinter(bleDevice)
-                printer.newText()
-                for (const line of lines) {
-                    printer.addText(line, {font: '', font_size: 72, alignment: 'center' })
-                    printer.newLine()
+                const cellPad = [];
+                cellPad[1] = 20;
+                const heading = lines.shift();
+                const footer = lines.pop();
+                printer.addRow(heading, { font_size: 24, bold: true, cellPad })
+                printer.newLine();
+                printer.addSeparator();
+
+                for (const words of lines) {
+                    printer.addRow(words, { font_size: 24, cellPad })
+                    printer.newLine();
                 }
-                await printer.printText()
+                printer.addSeparator();
+                printer.addRow(footer, { font_size: 24, bold: true, cellPad })
+                printer.newLine();
+                await printer.printText();
+                await printer.finish(70);
             })
         </script>
     </body>
