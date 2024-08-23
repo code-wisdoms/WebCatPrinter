@@ -1,5 +1,5 @@
 # WebCatPrinter
-I made this as a hobby project for portable cat printers. You can printer from your browser in PC, laptop or phone.
+I made this as a hobby project for portable cat printers. You can print from your browser in PC, laptop or phone.
 
 ### Unsupported Browsers:
 As of today, the "Web Bluetooth API" is [not supported by Firefox and Safari](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API#browser_compatibility).
