@@ -1,4 +1,5 @@
 const typescript = require("@rollup/plugin-typescript");
+const license = `/*\n* Web Cat Printer\n* (c) 2023-present Raza (Code-wisdoms)\n* distributed under MIT license\n*/`;
 
 module.exports = {
   input: "src/index.ts",
@@ -7,20 +8,20 @@ module.exports = {
       file: "dist/bundle.cjs.js",
       format: "cjs",
       sourcemap: true,
-      banner: `/*\n* Web Cat Printer\n* (c) 2023-${new Date().getFullYear()} Ahmed Raza\n* Cannot use, copy, modify, and/or distribute this software for any purpose with or without fee.\n*/`
+      banner: license,
     },
     {
       file: "dist/bundle.esm.js",
       format: "esm",
       sourcemap: true,
-      banner: `/*\n* Web Cat Printer\n* (c) 2023-${new Date().getFullYear()} Ahmed Raza\n* Cannot use, copy, modify, and/or distribute this software for any purpose with or without fee.\n*/`
+      banner: license,
     },
     {
       file: "dist/bundle.umd.js",
       format: "umd",
       name: "WebCatPrinter",
       sourcemap: true,
-      banner: `/*\n* Web Cat Printer\n* (c) 2023-${new Date().getFullYear()} Ahmed Raza\n* Cannot use, copy, modify, and/or distribute this software for any purpose with or without fee.\n*/`
+      banner: license,
     },
   ],
   plugins: [typescript()],
