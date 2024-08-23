@@ -59,7 +59,7 @@ export class TextEncoder {
      */
     public addText(text: string, options: TextOptions): void {
         if (this.canvas && this.ctx) {
-            if (options.alignment) {
+            if (options?.alignment) {
                 const align = options.alignment
                 if (align == 'center') {
                     this.addCenter(text, options)
