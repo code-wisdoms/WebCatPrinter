@@ -41,6 +41,9 @@ export class TextEncoder {
                 registerFont(font.path, font.name)
             })
         }
+        if (this.canvas) {
+            this.canvas.remove()
+        }
         this.canvas = createCanvas(this.max_width, 10000)
         this.ctx = this.canvas.getContext('2d') ?? undefined
         this.current_x = 0

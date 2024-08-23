@@ -28,6 +28,8 @@ export class Queue {
             let item: any = Queue.queue.shift();
             if (item) {
                 Queue.callback && await Queue.callback(item);
+            } else {
+                Queue.isStarted = false;
             }
             Queue.isRunning = false;
             if (Queue.queue.length > 0) {
