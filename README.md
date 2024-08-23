@@ -9,7 +9,7 @@ As of today, the "Web Bluetooth API" is [not supported by Firefox and Safari](ht
  1. Clone the project
  2. Run `npm install`
  3. Run `npm run build`
- 4. Use the /build directory in your project
+ 4. Use the /dist directory in your project
 
 ### Example:
 Example project is included in /example directory.
