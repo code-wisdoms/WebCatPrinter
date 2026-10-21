@@ -1,4 +1,4 @@
-import { Queue } from "./queue";
+
 
 const PRINT_CHARACTERISTIC = "0000ae01-0000-1000-8000-00805f9b34fb";
 const NOTIFY_CHARACTERISTIC = "0000ae02-0000-1000-8000-00805f9b34fb";
@@ -31,10 +31,7 @@ export const connect = async (device: BluetoothDevice): Promise<BleDevice> => {
           }
         }
 
-        await notify_characteristic?.startNotifications()
-        notify_characteristic?.addEventListener('characteristicvaluechanged', () => {
-          Queue.signal()
-        })
+
       }
 
       if (

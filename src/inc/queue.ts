@@ -1,41 +1,33 @@
-export class Queue {
-    private static queue: any[] = [];
-    private static isStarted: boolean = false;
-    private static isRunning: boolean = false;
-    private static toggle: boolean = false;
-    private static callback: any = null
+/** Per-printer FIFO. Each push resolves only after its callback finishes. */
+export class Queue<T> {
+    private queue: { item: T; resolve: () => void; reject: (error: unknown) => void }[] = [];
+    private isRunning = false;
 
-    public static setCallback(callback: any) {
-        Queue.callback = callback;
+    constructor(private callback: (item: T) => Promise<void>) {}
+
+    public push(item: T): Promise<void> {
+        const completion = new Promise<void>((resolve, reject) => {
+            this.queue.push({ item, resolve, reject });
+        });
+        void this.start();
+        return completion;
     }
-    public static async start() {
-        if (Queue.isStarted) {
-            return
-        }
-        Queue.isStarted = true
-        let item: any = Queue.queue.shift();
-        if (item) {
-            Queue.callback && await Queue.callback(item);
-        }
-    }
-    public static push(item: any) {
-        Queue.queue.push(item);
-    }
-    public static async signal() {
-        Queue.toggle = !Queue.toggle;
-        if (Queue.toggle === true && !Queue.isRunning) {
-            Queue.isRunning = true;
-            let item: any = Queue.queue.shift();
-            if (item) {
-                Queue.callback && await Queue.callback(item);
-            } else {
-                Queue.isStarted = false;
+
+    public async start(): Promise<void> {
+        if (this.isRunning) return;
+        this.isRunning = true;
+        try {
+            while (this.queue.length) {
+                const entry = this.queue.shift()!;
+                try {
+                    await this.callback(entry.item);
+                    entry.resolve();
+                } catch (error) {
+                    entry.reject(error);
+                }
             }
-            Queue.isRunning = false;
-            if (Queue.queue.length > 0) {
-                await Queue.signal()
-                await Queue.signal()
-            }
+        } finally {
+            this.isRunning = false;
         }
     }
 }

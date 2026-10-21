@@ -1,10 +1,13 @@
 import { PrinterData } from "./cat_image";
 import { Commander } from './cat_commands';
 import { TextEncoder, CustomFonts, TextOptions } from "./text_encoder";
-import { BleDevice, connect } from './ble_adapter';
+import { BleDevice } from './ble_adapter';
+import { FrameDecoder } from "./protocol";
 import { Queue } from "./queue";
 
 export interface PrinterState {
+    /** True only after a valid state reply; false means thermal/paper state is unknown. */
+    known: boolean;
     out_of_paper: boolean;
     cover: boolean;
     overheat: boolean;
@@ -22,14 +25,20 @@ export enum StateFlag {
     busy = 128,
 }
 
+export interface PrinterOptions {
+    /** Minimum gap after the last write, including the five-second buffer drain. Default 5000. */
+    cooldownMs?: number;
+}
+
 export class CatPrinter extends Commander {
     private device: BleDevice
     private text_encoder: TextEncoder
-    private energy: number = 65500
-    private speed: number = 50
+    private energy: number = 12000
+    private speed: number = 16
     private print_width = 384
-    private mtu: number = 200
+    private mtu: number = 20
     private state: PrinterState = {
+        known: false,
         out_of_paper: false,
         cover: false,
         overheat: false,
@@ -38,21 +47,19 @@ export class CatPrinter extends Commander {
         busy: false
     }
 
-    constructor(ble_device: BleDevice) {
+    constructor(ble_device: BleDevice, options: PrinterOptions = {}) {
         super()
-        if (ble_device.device === undefined || ble_device.print_characteristic === undefined) {
+        const cooldown = options.cooldownMs === undefined ? 5000 : options.cooldownMs;
+        if (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 300000)
+            throw new RangeError('cooldownMs must be 0..300000');
+        this.cooldownMs = cooldown;
+        if (ble_device.device === undefined || ble_device.print_characteristic === undefined || ble_device.notify_characteristic === undefined) {
             throw new Error(' Ble device not valid ensure you have scan for device')
         }
 
         this.device = ble_device
         this.text_encoder = new TextEncoder(this.print_width)
-        Queue.setCallback(async (item: any) => {
-            try {
-                await this.device.print_characteristic!.writeValueWithoutResponse(item)
-            } catch (error) {
-                console.error(error)
-            }
-        })
+
     }
 
     /**
@@ -82,33 +89,34 @@ export class CatPrinter extends Commander {
      * @returns 
      */
     public async drawSeparator(thick?: number): Promise<void> {
-        let line_thick: number
-        thick ? line_thick = thick : line_thick = 1
-        const line: Uint8Array = new Uint8Array(48)
-        line.fill(255, 0, 47)
-        await this.prepare()
-        while (line_thick > 0) {
-            await this.drawBitmap(line)
-            line_thick--
-        }
-        await this.finish(1)
-        return
+        const thickness = thick === undefined ? 1 : thick;
+        if (!Number.isInteger(thickness) || thickness < 1 || thickness > 384)
+            throw new RangeError('Separator thickness must be 1..384');
+        const line = new Uint8Array(48).fill(255);
+        await this.runJob(async () => {
+            for (let i = 0; i < thickness; i++) {
+                if (i > 0 && i % 64 === 0) await this.refreshStatus();
+                await this.drawBitmap(line);
+            }
+        });
     }
 
     /**
      * Set the 'ink' strenght or how much dark the print will be
-     * @param value number from 1 to 65500 higher is darker default 65500
+     * @param value number from 1 to 48000 higher is darker default 12000
      */
     public setStrenght(value: number): void {
+        if (!Number.isInteger(value) || value < 1 || value > 48000) throw new RangeError("Strength must be 1..48000");
         this.energy = value
     }
 
     /**
      * Set feed/retract speed hight speed can cause low quality,
      * lower is the value quicker will be the feeding
-     * @param value number  >= 4 default 34
+     * @param value number from 8 to 32; default 16
      */
     public setPrintingSpeed(value: number): void {
+        if (!Number.isInteger(value) || value < 8 || value > 32) throw new RangeError("Speed divisor must be 8..32");
         this.speed = value
     }
 
@@ -117,7 +125,7 @@ export class CatPrinter extends Commander {
      * @returns PrinterState
      */
     public getPrinterStatus(): PrinterState {
-        return this.state
+        return { ...this.state, known: this.state.known && !!this.device.device.gatt?.connected }
     }
 
     /**
@@ -125,6 +133,9 @@ export class CatPrinter extends Commander {
      * @returns 
      */
     public async disconnect(): Promise<void> {
+        this.subscribed?.removeEventListener('characteristicvaluechanged', this.onNotification);
+        this.subscribed = undefined;
+        this.state.known = false;
         return await this.device.device.gatt?.disconnect()
     }
 
@@ -158,20 +169,66 @@ export class CatPrinter extends Commander {
      * @param data the commad message to send
      * @returns 
      */
-    protected async send(data: Uint8Array): Promise<void> {
-        if (!this.device.device.gatt?.connected) {
-            this.device = await connect(this.device.device);
+    private writes = new Queue<() => Promise<void>>(task => task())
+    private decoder = new FrameDecoder()
+    private subscribed?: BluetoothRemoteGATTCharacteristic
+    private paused = false
+    private printing = false
+    private jobs = new Queue<() => Promise<void>>(task => task())
+    private cooldownMs: number
+    private pendingJobs = 0
+    private jobGeneration = 0
+    private phase: 'ready' | 'printing' | 'settling' | 'cooling' = 'ready'
+    private statusWaiter?: () => void
+    private infoHex: string | null = null
+    private nextJobAt = 0
+    private readonly sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+    private readonly onNotification = (event: Event) => {
+        const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+        if (!value) return;
+        const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+        for (const frame of this.decoder.push(data)) {
+            if (frame.command === 0xae && frame.payload.length === 1) {
+                if (frame.payload[0] === 0x10) this.paused = true;
+                if (frame.payload[0] === 0) this.paused = false;
+            }
+            if (frame.command === 0xa3 && frame.payload.length) {
+                this.updateStatus(frame.payload[0]);
+                this.statusWaiter?.();
+            }
+            if (frame.command === 0xa8) this.infoHex = Array.from(frame.payload).map(b => ('0' + b.toString(16)).slice(-2)).join('');
         }
-        await this.device.notify_characteristic?.startNotifications()
-        this.device.notify_characteristic?.addEventListener('characteristicvaluechanged', () => {
-            Queue.signal()
-        })
-        const chunks = this.chunkify(data);
-        for (const chunk of chunks) {
-            Queue.push(chunk);
-        }
-        await Queue.start();
-        return
+    }
+
+    protected send(data: Uint8Array): Promise<void> {
+        const operation = this.writes.push(async () => {
+            if (!this.device.device.gatt?.connected) {
+                throw new Error('Printer disconnected. Reconnect explicitly before starting a new job.');
+            }
+            const notify = this.device.notify_characteristic;
+            if (this.subscribed !== notify) {
+                this.subscribed?.removeEventListener('characteristicvaluechanged', this.onNotification);
+                this.decoder.reset();
+                this.paused = false;
+                notify.addEventListener('characteristicvaluechanged', this.onNotification);
+                try { await notify.startNotifications(); }
+                catch (error) { notify.removeEventListener('characteristicvaluechanged', this.onNotification); throw error; }
+                this.subscribed = notify;
+            }
+            for (const chunk of this.chunkify(data)) {
+                const deadline = Date.now() + 30000;
+                while (this.paused) {
+                    if (!this.device.device.gatt?.connected) throw new Error('Printer disconnected');
+                    if (Date.now() > deadline) throw new Error('Printer buffer remained paused for 30 seconds');
+                    await this.sleep(50);
+                }
+                if (data[2] !== 0xa3 && data[2] !== 0xa8 && (this.state.overheat || this.state.out_of_paper || this.state.cover || this.state.low_power || this.state.busy))
+                    throw new Error('Printer reports heat, paper, cover, battery or busy state; stop and check printer');
+                await this.device.print_characteristic.writeValueWithoutResponse(chunk);
+                await this.sleep(15);
+            }
+        });
+        return operation;
     }
 
     /**
@@ -179,13 +236,54 @@ export class CatPrinter extends Commander {
      * @param printer_data the data to print
      */
     private async print(printer_data: PrinterData): Promise<void> {
-        await this.prepare()
-        // TODO: consider compression on new devices
-        const rows = await printer_data.read(Math.floor(this.print_width / 8))
-        for (let row of rows) {
-            this.drawBitmap(row)
-        }
-        this.finish(1)
+        await this.runJob(async () => {
+            const rows = await printer_data.read(Math.floor(this.print_width / 8));
+            let i = 0;
+            for (const row of rows) {
+                if (i > 0 && i % 64 === 0) await this.refreshStatus();
+                await this.drawBitmap(row);
+                i++;
+            }
+        });
+    }
+
+    public getJobStatus() {
+        return { phase: this.phase, pendingJobs: this.pendingJobs,
+            remainingMs: Math.max(0, this.nextJobAt - Date.now()) };
+    }
+
+    private runJob(draw: () => Promise<void>): Promise<void> {
+        this.pendingJobs++;
+        const generation = this.jobGeneration;
+        const operation = this.jobs.push(async () => {
+            if (generation !== this.jobGeneration) throw new Error('Queued print cancelled because an earlier job failed');
+            this.printing = true;
+            try {
+                if (this.nextJobAt > Date.now()) {
+                    this.phase = 'cooling';
+                    await this.sleep(this.nextJobAt - Date.now());
+                }
+                this.phase = 'printing';
+                await this.prepare();
+                await draw();
+                await this.finish(70);
+                // Cooldown overlaps the buffer drain instead of adding another wait after it.
+                this.nextJobAt = Date.now() + Math.max(5000, this.cooldownMs);
+                this.phase = 'settling';
+                await this.sleep(5000);
+            } catch (error) {
+                this.jobGeneration++;
+                this.nextJobAt = Date.now() + Math.max(5000, this.cooldownMs);
+                throw error;
+            } finally {
+                this.printing = false;
+                this.phase = 'ready';
+            }
+        }).then(
+            () => { this.pendingJobs--; },
+            error => { this.pendingJobs--; throw error; }
+        );
+        return operation;
     }
 
     /**
@@ -205,36 +303,55 @@ export class CatPrinter extends Commander {
      * Stack messages needde before sending printerData
      */
     private async prepare() {
-        await this.getDeviceState()
-        await this.setDpi()
+        await this.refreshStatus();
+        if (!this.isX6()) await this.setDpi();
         await this.setSpeed(this.speed)
         await this.setEnergy(this.energy)
         await this.applyEnergy()
-        await this.updateDevice()
-        await this.startLattice()
+        if (!this.isX6()) await this.startLattice();
+        await this.drawBitmap(new Uint8Array(48));
     }
 
     /**
      * Stack messages needed after sending printerData
      */
     private async finish(extra_feed: number) {
-        await this.endLattice()
+        if (!this.isX6()) await this.endLattice()
         await this.setSpeed(8)
         await this.feedPaper(extra_feed)
-        await this.getDeviceState()
+        await this.refreshStatus()
     }
 
-    private updateStatus(dt: any) {
-        let data: Uint8Array = new Uint8Array(dt.buffer);
-        const state = data[6]
+    /** Request a fresh state; silence is an error, never an implicit healthy state. */
+    public async refreshStatus(): Promise<PrinterState> {
+        if (this.statusWaiter) throw new Error('Status request already pending');
+        this.state.known = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const response = new Promise<void>((resolve, reject) => {
+            this.statusWaiter = resolve;
+            timer = setTimeout(() => reject(new Error('No printer state reply within 3 seconds')), 3000);
+        });
+        // Attach rejection handling before writing so a slow write cannot leave an unhandled timeout.
+        const write = this.getDeviceState();
+        try { await Promise.all([write, response]); return this.getPrinterStatus(); }
+        finally { clearTimeout(timer); this.statusWaiter = undefined; }
+    }
 
+    /** Last raw info payload; requestDeviceInfo waits for the query write, not the reply. */
+    public getDeviceInfoHex(): string | null { return this.infoHex; }
+    public async requestDeviceInfo(): Promise<void> { await this.getDeviceInfo(); }
+
+    private isX6() { return /^x6/i.test(this.device.device.name || ''); }
+
+    private updateStatus(flags: number) {
         this.state = {
-            out_of_paper: state === StateFlag.out_of_paper ? false : true,
-            cover: state === StateFlag.cover ? false : true,
-            overheat: state === StateFlag.overheat ? false : true,
-            low_power: state === StateFlag.low_power ? false : true,
-            pause: state === StateFlag.pause ? false : true,
-            busy: state === StateFlag.busy ? false : true
-        }
+            known: true,
+            out_of_paper: !!(flags & StateFlag.out_of_paper),
+            cover: !!(flags & StateFlag.cover),
+            overheat: !!(flags & StateFlag.overheat),
+            low_power: !!(flags & StateFlag.low_power),
+            pause: !!(flags & StateFlag.pause),
+            busy: !!(flags & StateFlag.busy)
+        };
     }
 }

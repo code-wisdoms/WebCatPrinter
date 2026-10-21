@@ -44,9 +44,10 @@ function bytes(i: number, length?: number, big_endian?: boolean) {
     length = length || 1;
     const result = new Uint8Array(length);
     let p = 0;
+    if (!Number.isInteger(i) || i < 0 || i >= 2 ** (8 * length)) throw new RangeError("Value does not fit command payload");
     while (i !== 0) {
         result[p] = i & 0xff;
-        i >>= 8;
+        i >>>= 8;
         ++p;
     }
     if (big_endian)
@@ -88,7 +89,7 @@ export abstract class Commander {
             throw new Error(`Command payload too big (${payload_size} > 255)`)
         }
         return new Uint8Array([
-            0x51, 0x78, command, type, payload.length % 0xff, payload.length / 0xff | 0,
+            0x51, 0x78, command, type, payload.length & 0xff, payload.length >>> 8,
             ...payload, calculateChecksum(payload), 0xff
         ]);
     }

@@ -36,7 +36,7 @@ const print = async (isTable = false) => {
     }
   }
   await printer.printText();
-  await printer.finish(70);
+
 };
 
 printTableElem.addEventListener("click", () => print(true));

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "test": "node --test tests/protocol.cjs",
     "build": "rollup -c"
   },
   "devDependencies": {
