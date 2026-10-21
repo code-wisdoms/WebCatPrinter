@@ -46,6 +46,8 @@ export const connect = async (device: BluetoothDevice): Promise<BleDevice> => {
           print_characteristic: printer_characteristic,
           notify_characteristic: notify_characteristic,
         });
+      } else {
+        reject(new Error('Printer characteristics not found'));
       }
     } catch (err) {
       reject(err);
